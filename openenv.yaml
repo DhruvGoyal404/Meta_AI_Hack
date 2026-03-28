@@ -1,0 +1,54 @@
+name: dataclean-env
+version: 2.0.0
+description: >
+  Real-world data cleaning and ETL environment for AI agent RL training.
+  4 tasks including the novel Data Drift task — live streaming rows injected
+  mid-episode every 5 steps, simulating a Kafka pipeline under continuous drift.
+author: Team DataClean
+tags:
+  - openenv
+  - data-cleaning
+  - etl
+  - real-world
+  - tabular
+  - data-drift
+  - streaming
+
+tasks:
+  - id: task1
+    name: Null Fixer
+    difficulty: easy
+    max_steps: 10
+    description: Fix null values and wrong dtypes in a 50-row customer dataset.
+
+  - id: task2
+    name: Schema Normalizer
+    difficulty: medium
+    max_steps: 20
+    description: Deduplicate, normalize country names, fix date format, fill nulls.
+
+  - id: task3
+    name: ETL Pipeline
+    difficulty: hard
+    max_steps: 30
+    description: Merge two tables, remove outliers, add derived column.
+
+  - id: task4_data_drift
+    name: Data Drift (Streaming)
+    difficulty: expert
+    max_steps: 40
+    description: >
+      NOVEL. Live streaming transactions — fresh dirty rows injected every 5 steps
+      mid-episode. Agent must clean continuously under real-time data drift.
+
+environment:
+  type: http
+  port: 7860
+  endpoints:
+    reset:    POST /reset
+    step:     POST /step
+    state:    GET  /state
+    tasks:    GET  /tasks
+    grader:   GET  /grader
+    baseline: GET  /baseline
+    health:   GET  /health
