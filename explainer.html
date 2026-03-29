@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DataClean OpenEnv — Team Explainer</title>
+<style>
+  body { font-family: Arial, sans-serif; max-width: 860px; margin: 40px auto; padding: 0 20px; color: #000; background: #fff; line-height: 1.7; }
+  h1 { font-size: 26px; border-bottom: 2px solid #000; padding-bottom: 8px; }
+  h2 { font-size: 18px; margin-top: 36px; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+  h3 { font-size: 15px; margin-top: 20px; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+  th, td { border: 1px solid #999; padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: #f0f0f0; font-weight: bold; }
+  code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; font-family: monospace; font-size: 13px; }
+  pre { background: #f4f4f4; padding: 14px; border-radius: 4px; overflow-x: auto; font-size: 13px; line-height: 1.6; }
+  .box { border: 1px solid #999; padding: 14px 18px; margin: 16px 0; border-radius: 4px; }
+  .highlight { background: #fffbe6; border-left: 4px solid #999; padding: 10px 16px; margin: 16px 0; }
+  ul { margin: 8px 0; padding-left: 24px; }
+  li { margin-bottom: 4px; }
+  .score-row { display: flex; align-items: center; gap: 12px; margin: 6px 0; }
+  .bar-wrap { flex: 1; background: #e0e0e0; height: 14px; border-radius: 2px; }
+  .bar { height: 14px; background: #555; border-radius: 2px; }
+  small { color: #555; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>DataClean OpenEnv — What We Built & Why</h1>
+<p><em>Team explainer — no jargon, plain English</em></p>
+
+<h2>1. What is this hackathon actually asking us to build?</h2>
+<div class="box">
+<p>Meta and Hugging Face created a standard called <strong>OpenEnv</strong>. Think of it like a rulebook for building AI training gyms. The hackathon says: <em>"Build a gym for an AI agent to practice a real-world task in."</em></p>
+<p>The gym must:</p>
+<ul>
+  <li>Let an AI agent take actions step by step</li>
+  <li>Give the agent a score after each action (reward)</li>
+  <li>Have at least 3 tasks — easy, medium, hard</li>
+  <li>Run inside Docker and deploy on Hugging Face</li>
+</ul>
+<p><strong>We chose the task: Data Cleaning.</strong> Every company that works with data spends hours fixing messy spreadsheets. We built an environment where an AI can learn to do that automatically.</p>
+</div>
+
+<h2>2. What does "data cleaning" mean here?</h2>
+<p>Imagine you receive a messy Excel file from a client. It might have:</p>
+<ul>
+  <li>Missing values — some cells are blank or say "N/A"</li>
+  <li>Wrong data types — age stored as text "25" instead of number 25</li>
+  <li>Duplicate rows — same record appears twice</li>
+  <li>Inconsistent text — "USA", "usa", "U.S.A" all meaning the same country</li>
+  <li>Extreme outliers — amount = $500,000 when everything else is under $2,000</li>
+  <li>Multiple tables that need to be joined together</li>
+</ul>
+<p>Our environment presents these messy datasets to an AI agent and asks it to fix them step by step.</p>
+
+<h2>3. How does the AI agent interact? (The Loop)</h2>
+<div class="box">
+<pre>
+1. reset()    →  Agent receives a dirty dataset + description of what to fix
+                 Score starts at 0.0
+
+2. step()     →  Agent sends ONE action (e.g. "fill nulls in age column with median")
+                 Environment applies it, scores the result
+                 Agent receives: updated dataset + reward + current score
+
+3. repeat     →  Agent keeps sending actions until it calls "submit" or runs out of steps
+
+4. submit     →  Final score is recorded. Episode ends.
+</pre>
+</div>
+<p>The agent never sees the "correct answer" — it only sees the current messy data and must figure out what to fix based on the feedback it gets after each action.</p>
+
+<h2>4. Our 4 Tasks</h2>
+<table>
+  <tr><th>Task</th><th>Difficulty</th><th>What the agent must do</th><th>Max Steps</th></tr>
+  <tr>
+    <td><strong>task1</strong><br>Null Fixer</td>
+    <td>Easy</td>
+    <td>50-row customer table. Fill missing age values with median → convert to integer. Fill missing salary values with mean.</td>
+    <td>10</td>
+  </tr>
+  <tr>
+    <td><strong>task2</strong><br>Schema Normalizer</td>
+    <td>Medium</td>
+    <td>200-row orders table. Remove ~30 duplicate rows. Fix "usa/USA/U.S.A" → all uppercase. Convert mixed date formats to proper datetime. Fill missing amounts.</td>
+    <td>20</td>
+  </tr>
+  <tr>
+    <td><strong>task3</strong><br>ETL Pipeline</td>
+    <td>Hard</td>
+    <td>Two separate tables (orders + customers). Must: join them on customer_id, remove outliers in the amount column, add a new "order_year" column derived from the date.</td>
+    <td>30</td>
+  </tr>
+  <tr>
+    <td><strong>task4</strong><br>Data Drift ⭐</td>
+    <td>Expert (Novel)</td>
+    <td>Live streaming table. Starts with 120 dirty rows. Every 5 steps, 7 MORE dirty rows are automatically injected — simulating a real Kafka data pipeline. Agent must keep cleaning while new dirty data keeps arriving.</td>
+    <td>40</td>
+  </tr>
+</table>
+
+<div class="highlight">
+<strong>Why Task 4 is our competitive edge:</strong> No existing OpenEnv environment does this. All other environments have a fixed dataset — static, unchanging. Task 4 simulates what actually happens in production data pipelines where data keeps flowing in. This is genuinely novel.
+</div>
+
+<h2>5. Actions — what can the AI agent do?</h2>
+<p>The agent can only do these specific operations (one per step):</p>
+<table>
+  <tr><th>Operation</th><th>What it does</th><th>Example</th></tr>
+  <tr><td><code>fill_nulls</code></td><td>Fill missing values in a column</td><td>Fill age nulls with median value</td></tr>
+  <tr><td><code>cast_column</code></td><td>Change data type of a column</td><td>Convert age from text to integer</td></tr>
+  <tr><td><code>remove_duplicates</code></td><td>Delete duplicate rows</td><td>Keep only the first occurrence</td></tr>
+  <tr><td><code>normalize_values</code></td><td>Standardize text values</td><td>Convert all country names to UPPERCASE</td></tr>
+  <tr><td><code>filter_outliers</code></td><td>Remove extreme values</td><td>Remove amounts outside IQR×1.5 range</td></tr>
+  <tr><td><code>merge_tables</code></td><td>Join two tables together</td><td>Join orders + customers on customer_id</td></tr>
+  <tr><td><code>add_derived_column</code></td><td>Create new column from existing data</td><td>Extract year from a date column</td></tr>
+  <tr><td><code>submit</code></td><td>End the episode, get final score</td><td>—</td></tr>
+</table>
+
+<h2>6. Scoring (Reward System)</h2>
+<p>After every single step, the agent gets a reward:</p>
+<pre>
+reward = new_score - previous_score
+</pre>
+<p>This means:</p>
+<ul>
+  <li>If the action improved the data → positive reward (+)</li>
+  <li>If the action made things worse → negative reward (−)</li>
+  <li>If the action failed/invalid → small penalty (−0.02)</li>
+</ul>
+<p>Each task has its own grader that scores specific things. For example, Task 1 grader checks:</p>
+<ul>
+  <li>30% — is age integer type?</li>
+  <li>35% — are all age nulls filled?</li>
+  <li>15% — is salary numeric?</li>
+  <li>20% — are all salary nulls filled?</li>
+</ul>
+<p>This "partial credit" design means the agent always has a signal to improve — it's never just 0 or 1 with nothing in between.</p>
+
+<h2>7. What is the "Baseline"?</h2>
+<p>The hackathon requires us to show that an actual AI model can run against our environment and produce scores. Our baseline uses a free LLM (Groq's llama-3.3-70b) to play through all 4 tasks.</p>
+<p><strong>Our innovation:</strong> All 4 tasks run <em>simultaneously</em> using Python threads (parallel execution). Normal submissions run tasks one by one. Ours runs all 4 at the same time — 3x faster.</p>
+
+<h3>Baseline results (seed=42, all 4 parallel):</h3>
+<div class="box">
+  <div class="score-row"><span style="width:200px">task1 — Null Fixer</span><div class="bar-wrap"><div class="bar" style="width:100%"></div></div><span>1.0000</span></div>
+  <div class="score-row"><span style="width:200px">task2 — Schema Normalizer</span><div class="bar-wrap"><div class="bar" style="width:100%"></div></div><span>1.0000</span></div>
+  <div class="score-row"><span style="width:200px">task3 — ETL Pipeline</span><div class="bar-wrap"><div class="bar" style="width:80%"></div></div><span>0.8000</span></div>
+  <div class="score-row"><span style="width:200px">task4 — Data Drift</span><div class="bar-wrap"><div class="bar" style="width:93%"></div></div><span>0.9297</span></div>
+  <div class="score-row"><span style="width:200px"><strong>Mean</strong></span><div class="bar-wrap"><div class="bar" style="width:93%"></div></div><span><strong>0.9324</strong></span></div>
+  <p><small>Wall clock time: 34.28 seconds (all 4 tasks ran simultaneously)</small></p>
+</div>
+
+<h2>8. How the code is structured</h2>
+<table>
+  <tr><th>File</th><th>What it does (plain English)</th></tr>
+  <tr><td><code>server/dataset_factory.py</code></td><td>Generates dirty datasets. Uses a "seed" number so the same dataset is always generated the same way — ensures reproducibility. Also generates "drift batches" (new dirty rows) for Task 4.</td></tr>
+  <tr><td><code>server/graders.py</code></td><td>The scoring functions. Takes the current state of the data and returns a number between 0.0 and 1.0. Completely deterministic — same input always gives same score.</td></tr>
+  <tr><td><code>server/environment.py</code></td><td>The "game engine". Handles reset(), step(), and state(). For Task 4 it automatically injects drift rows every 5 steps.</td></tr>
+  <tr><td><code>server/app.py</code></td><td>The web server (FastAPI). Exposes all endpoints as HTTP routes so any agent can talk to it.</td></tr>
+  <tr><td><code>models.py</code></td><td>Defines exactly what an Action and Observation look like using Pydantic. This is the "contract" between agent and environment.</td></tr>
+  <tr><td><code>baseline.py</code></td><td>Runs an LLM agent against all 4 tasks simultaneously and prints scores.</td></tr>
+  <tr><td><code>Dockerfile</code></td><td>Packages everything into a container. Runs on port 7860 (required by Hugging Face Spaces).</td></tr>
+</table>
+
+<h2>9. Why this beats "TicTacToe" type submissions</h2>
+<table>
+  <tr><th></th><th>Game-based (TicTacToe etc.)</th><th>Our submission</th></tr>
+  <tr><td>Real-world use</td><td>No practical application</td><td>Every data team uses this daily</td></tr>
+  <tr><td>Domain novelty</td><td>Already exists in OpenEnv</td><td>First data cleaning environment</td></tr>
+  <tr><td>Difficulty range</td><td>Usually one level</td><td>Easy → Medium → Hard → Expert</td></tr>
+  <tr><td>Grader variance</td><td>Win/loss binary</td><td>Continuous 0.0–1.0 with partial credit</td></tr>
+  <tr><td>Novel mechanics</td><td>None</td><td>Live data drift (Task 4) — genuinely new</td></tr>
+  <tr><td>Baseline</td><td>Sequential</td><td>Parallel (4 tasks simultaneously)</td></tr>
+</table>
+
+<h2>10. Hackathon scoring — how we expect to do</h2>
+<table>
+  <tr><th>Criterion</th><th>Weight</th><th>Our position</th></tr>
+  <tr><td>Real-world utility</td><td>30%</td><td>Strong — data cleaning is a genuine daily task</td></tr>
+  <tr><td>Task & grader quality</td><td>25%</td><td>Strong — 4 tasks, deterministic graders, partial credit</td></tr>
+  <tr><td>Environment design</td><td>20%</td><td>Strong — dense rewards, drift injection, clean state management</td></tr>
+  <tr><td>Code quality & spec compliance</td><td>15%</td><td>Good — typed models, FastAPI, Dockerfile works</td></tr>
+  <tr><td>Creativity & novelty</td><td>10%</td><td>Strong — Task 4 is genuinely novel in OpenEnv</td></tr>
+</table>
+
+<h2>11. Deployment</h2>
+<p>The environment is deployed at:</p>
+<p><strong><a href="https://huggingface.co/spaces/agent-dg21/dataclean-env">https://huggingface.co/spaces/agent-dg21/dataclean-env</a></strong></p>
+<p>It runs as a Docker container on Hugging Face Spaces (free CPU tier). Any agent in the world can connect to it and start training.</p>
+
+<hr>
+<p><small>Built for Meta × Hugging Face OpenEnv Hackathon · Team: Mishika Sardana, Vaani Prashar, Dhruv Goyal</small></p>
+
+</body>
+</html>
