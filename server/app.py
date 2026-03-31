@@ -59,11 +59,14 @@ def root():
             "endpoints": ["/reset","/step","/state","/tasks","/grader","/baseline","/health"]}
 
 @app.post("/reset")
-def reset(body: ResetRequest):
+def reset(body: Optional[ResetRequest] = None):
     """
-    FIX: Accepts JSON body (not query params).
+    Accepts an optional JSON body — defaults to task1/seed=42/session=default.
     baseline.py sends: requests.post('/reset', json={"task_id":..., "seed":...})
+    OpenEnv validator may send POST /reset with no body at all.
     """
+    if body is None:
+        body = ResetRequest()
     env = _env(body.session_id)
     try:
         obs = env.reset(task_id=body.task_id, seed=body.seed)
