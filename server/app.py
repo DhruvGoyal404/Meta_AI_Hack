@@ -209,3 +209,11 @@ async def _run_baseline_internal() -> dict:
 
     mean = round(sum(scores.values()) / len(scores), 4) if scores else 0.0
     return {"scores": scores, "mean_score": mean, "model": model, "seed": 42}
+
+
+def main():
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=7860)
+
+if __name__ == "__main__":
+    main()
