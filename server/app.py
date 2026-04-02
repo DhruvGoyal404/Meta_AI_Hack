@@ -15,7 +15,7 @@ import asyncio
 import logging
 from typing import Optional, Dict
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -59,7 +59,7 @@ def root():
             "endpoints": ["/reset","/step","/state","/tasks","/grader","/baseline","/health"]}
 
 @app.post("/reset")
-def reset(body: Optional[ResetRequest] = None):
+def reset(body: Optional[ResetRequest] = Body(default=None)):
     """
     Accepts an optional JSON body — defaults to task1/seed=42/session=default.
     baseline.py sends: requests.post('/reset', json={"task_id":..., "seed":...})
