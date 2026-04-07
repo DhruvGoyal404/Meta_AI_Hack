@@ -140,13 +140,19 @@ def run_episode(task_id: str, seed: int = 42) -> Tuple[str, float, float]:
         obs  = data["observation"]
         done = data["done"]
 
-        print(f"  [{task_id}] step {step_num+1:2d} | op={action.get('operation'):22s} | "
-              f"reward={data['reward']:+.4f} | score={obs['partial_score']:.4f}")
+        print(
+            f"[STEP] task={task_id} step={step_num+1} "
+            f"reward={data['reward']:.4f} score={obs['partial_score']:.4f}",
+            flush=True
+        )
         time.sleep(0.5)  # light rate-limit buffer
 
     elapsed = round(time.time() - t0, 2)
     score   = float(obs.get("partial_score", 0.0))
-    print(f"  [{task_id}] DONE | score={score:.4f} | {elapsed}s")
+    print(
+        f"[END] task={task_id} score={score:.4f} steps={step_num+1}",
+        flush=True
+    )
     return task_id, score, elapsed
 
 
