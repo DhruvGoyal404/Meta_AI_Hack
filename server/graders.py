@@ -29,7 +29,7 @@ def grade_task1(df: pd.DataFrame, expected_df: pd.DataFrame) -> float:
         null_r = df["salary"].isna().sum() / n
         score += 0.20 * (1.0 - null_r)
 
-    return round(min(1.0, max(0.0, score)), 4)
+    return round(min(0.999, max(0.001, score)), 4)
 
 
 def grade_task2(df: pd.DataFrame, expected_df: pd.DataFrame, dirty_df: pd.DataFrame) -> float:
@@ -64,7 +64,7 @@ def grade_task2(df: pd.DataFrame, expected_df: pd.DataFrame, dirty_df: pd.DataFr
     if "amount" in df.columns:
         score += 0.15 * (1.0 - df["amount"].isna().sum() / n)
 
-    return round(min(1.0, max(0.0, score)), 4)
+    return round(min(0.999, max(0.001, score)), 4)
 
 
 def grade_task3(tables: Dict[str, pd.DataFrame], expected_df: pd.DataFrame,
@@ -134,7 +134,7 @@ def grade_task3(tables: Dict[str, pd.DataFrame], expected_df: pd.DataFrame,
         valid = float(((years >= 2020) & (years <= 2030)).mean())
         score += 0.20 * valid
 
-    return round(min(1.0, max(0.0, score)), 4)
+    return round(min(0.999, max(0.001, score)), 4)
 
 
 # ── Task 4: Data Drift (Expert) ───────────────────────────────────────────────
@@ -189,4 +189,4 @@ def grade_task4(df: pd.DataFrame) -> float:
     row_health = min(1.0, n / 60.0)
     score += 0.20 * row_health
 
-    return round(min(1.0, max(0.0, score)), 4)
+    return round(min(0.999, max(0.001, score)), 4)
