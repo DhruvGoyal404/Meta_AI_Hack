@@ -1,8 +1,7 @@
 """
-DataClean OpenEnv — Inference Script
-=====================================
-Runs all 4 tasks in parallel using concurrent.futures.ThreadPoolExecutor.
-Uses env vars: HF_TOKEN, API_BASE_URL, MODEL_NAME (per hackathon spec).
+DataClean OpenEnv — inference.py
+Required output format: [START] / [STEP] / [END] structured blocks.
+Uses: HF_TOKEN, API_BASE_URL, MODEL_NAME env vars.
 """
 import os, json, time, sys
 import requests
@@ -42,6 +41,21 @@ Task strategies:
 """
 
 
+# ── Required structured output helpers ───────────────────────────────────────
+
+def log_start(task_id: str):
+    print(f"[START] task={task_id}", flush=True)
+
+def log_step(step: int, action: str, reward: float, done: bool, error=None):
+    error_val = error if error else "null"
+    print(f"[STEP] step={step} action={action} reward={reward:.4f} done={str(done).lower()} error={error_val}", flush=True)
+
+def log_end(task_id: str, score: float, steps: int, success: bool):
+    print(f"[END] task={task_id} score={score:.4f} steps={steps} success={str(success).lower()}", flush=True)
+
+
+# ── LLM client ───────────────────────────────────────────────────────────────
+
 def _make_client():
     return OpenAI(api_key=API_KEY, base_url=BASE_URL)
 
@@ -65,12 +79,19 @@ def _build_prompt(obs: dict, task_id: str) -> str:
     )
 
 
+# ── Episode runner ────────────────────────────────────────────────────────────
+
 def run_episode(task_id: str, seed: int = 42) -> Tuple[str, float, float]:
     session_id = f"inference_{task_id}"
     client     = _make_client()
     t0         = time.time()
     max_steps  = TASK_MAX_STEPS[task_id]
+    step_num   = 0
+    score      = 0.0
 
+    log_start(task_id)
+
+    # Reset
     try:
         resp = requests.post(
             f"{ENV_URL}/reset",
@@ -81,15 +102,16 @@ def run_episode(task_id: str, seed: int = 42) -> Tuple[str, float, float]:
         obs  = resp.json()
         done = obs.get("done", False)
     except Exception as e:
-        print(f"  [{task_id}] Reset failed: {e}")
+        log_end(task_id, 0.0, 0, False)
         return task_id, 0.0, 0.0
 
-    print(f"  [{task_id}] started | score={obs['partial_score']:.3f}")
-
-    for step_num in range(max_steps):
+    # Episode loop
+    for step_num in range(1, max_steps + 1):
         if done:
             break
 
+        # Get action from LLM
+        action_str = "submit"
         try:
             prompt   = _build_prompt(obs, task_id)
             response = client.chat.completions.create(
@@ -106,11 +128,16 @@ def run_episode(task_id: str, seed: int = 42) -> Tuple[str, float, float]:
                 raw = raw.split("```")[1]
                 if raw.startswith("json"):
                     raw = raw[4:]
-            action = json.loads(raw)
+            action      = json.loads(raw)
+            action_str  = action.get("operation", "submit")
+            error_msg   = None
         except Exception as e:
-            print(f"  [{task_id}] LLM error step {step_num+1}: {e} — submitting")
-            action = {"operation": "submit"}
+            action      = {"operation": "submit"}
+            action_str  = "submit"
+            error_msg   = str(e)[:80]
 
+        # Execute step
+        reward = 0.0
         try:
             step_resp = requests.post(
                 f"{ENV_URL}/step?session_id={session_id}",
@@ -118,43 +145,40 @@ def run_episode(task_id: str, seed: int = 42) -> Tuple[str, float, float]:
                 timeout=30,
             )
             step_resp.raise_for_status()
-            data = step_resp.json()
-            obs  = data["observation"]
-            done = data["done"]
+            data   = step_resp.json()
+            obs    = data["observation"]
+            done   = data["done"]
+            reward = float(data.get("reward", 0.0))
+            score  = float(obs.get("partial_score", 0.0))
+            error_msg = None
         except Exception as e:
-            print(f"  [{task_id}] Step error: {e}")
-            break
+            error_msg = str(e)[:80]
+            done = True
 
-        print(f"  [{task_id}] step {step_num+1:2d} | op={action.get('operation'):20s} | "
-              f"reward={data.get('reward', 0):+.4f} | score={obs['partial_score']:.4f}")
+        log_step(step_num, action_str, reward, done, error_msg)
         time.sleep(0.3)
 
-    elapsed = round(time.time() - t0, 2)
-    score   = float(obs.get("partial_score", 0.0))
-    print(f"  [{task_id}] FINAL score={score:.4f} | {elapsed}s")
-    return task_id, score, elapsed
+    success = score >= 0.5
+    log_end(task_id, score, step_num, success)
+    return task_id, score, round(time.time() - t0, 2)
 
+
+# ── Main — parallel across all tasks ─────────────────────────────────────────
 
 def main():
     if not API_KEY:
-        print("ERROR: HF_TOKEN not set")
+        print("[ERROR] HF_TOKEN not set", flush=True)
         sys.exit(1)
 
     try:
-        h = requests.get(f"{ENV_URL}/health", timeout=10)
-        print(f"Server health: {h.json()}")
+        h = requests.get(f"{ENV_URL}/health", timeout=15)
+        print(f"[INFO] Server: {h.json()}", flush=True)
     except Exception as e:
-        print(f"ERROR: Cannot reach server at {ENV_URL}: {e}")
+        print(f"[ERROR] Cannot reach server at {ENV_URL}: {e}", flush=True)
         sys.exit(1)
 
-    tasks = list(TASK_MAX_STEPS.keys())
-    print(f"\n{'='*60}")
-    print(f"  DataClean Inference | model={MODEL} | seed=42")
-    print(f"  Running {len(tasks)} tasks SIMULTANEOUSLY")
-    print(f"{'='*60}\n")
-
-    t_total = time.time()
-    scores:  Dict[str, float] = {}
+    tasks   = list(TASK_MAX_STEPS.keys())
+    scores: Dict[str, float] = {}
     elapsed: Dict[str, float] = {}
 
     with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
@@ -169,22 +193,12 @@ def main():
                 scores[tid]  = round(score, 4)
                 elapsed[tid] = secs
             except Exception as exc:
-                print(f"  [{task_id}] FAILED: {exc}")
                 scores[task_id]  = 0.0
                 elapsed[task_id] = -1.0
+                log_end(task_id, 0.0, 0, False)
 
-    wall_time = round(time.time() - t_total, 2)
     mean = round(sum(scores.values()) / len(scores), 4) if scores else 0.0
-
-    print(f"\n{'='*60}")
-    print(f"  RESULTS (wall time: {wall_time}s)")
-    print(f"{'='*60}")
-    for k, v in scores.items():
-        bar = "#" * int(v * 25)
-        print(f"  {k:<25} {v:.4f}  {bar}")
-    print(f"  {'mean':<25} {mean:.4f}")
-    print(f"{'='*60}\n")
-    print(json.dumps({**scores, "mean": mean, "wall_time_seconds": wall_time}, indent=2))
+    print(json.dumps({**scores, "mean": mean}, indent=2), flush=True)
 
 
 if __name__ == "__main__":
