@@ -51,7 +51,8 @@ def log_step(step: int, action: str, reward: float, done: bool, error=None):
     print(f"[STEP] step={step} action={action} reward={reward:.4f} done={str(done).lower()} error={error_val}", flush=True)
 
 def log_end(task_id: str, score: float, steps: int, success: bool):
-    print(f"[END] task={task_id} score={score:.4f} steps={steps} success={str(success).lower()}", flush=True)
+    clipped = round(min(0.999, max(0.001, score)), 4)
+    print(f"[END] task={task_id} score={clipped:.4f} steps={steps} success={str(success).lower()}", flush=True)
 
 
 # ── LLM client ───────────────────────────────────────────────────────────────
