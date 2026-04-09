@@ -93,10 +93,10 @@ class DataCleanEnvironment:
         self._tables:            Dict[str, pd.DataFrame] = {}
         self._expected_tables:   Dict[str, pd.DataFrame] = {}
         self._dirty_tables:      Dict[str, pd.DataFrame] = {}
-        self._prev_score         = 0.0
+        self._prev_score         = 0.001
         self._last_reward        = 0.0
         self._last_msg           = "Not started. Call /reset first."
-        self.last_partial_score  = 0.0
+        self.last_partial_score  = 0.001
 
     # ── OpenEnv API ───────────────────────────────────────────────────────────
 
@@ -350,9 +350,11 @@ class DataCleanEnvironment:
                                    self._dirty_tables)
             elif self._task_id == "task4_data_drift":
                 return grade_task4(self._tables.get("stream", pd.DataFrame()))
+            else:
+                score = 0.001
         except Exception:
-            return 0.0
-        return 0.0
+            return 0.001
+        return float(min(0.999, max(0.001 , score)))
 
     # ── Observation builder ───────────────────────────────────────────────────
 
