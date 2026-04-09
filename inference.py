@@ -88,7 +88,7 @@ def run_episode(task_id: str, seed: int = 42) -> Tuple[str, float, float]:
     t0         = time.time()
     max_steps  = TASK_MAX_STEPS[task_id]
     step_num   = 0
-    score      = 0.0
+    score      = 0.001
 
     log_start(task_id)
 
@@ -103,7 +103,7 @@ def run_episode(task_id: str, seed: int = 42) -> Tuple[str, float, float]:
         obs  = resp.json()
         done = obs.get("done", False)
     except Exception as e:
-        log_end(task_id, 0.0, 0, False)
+        log_end(task_id, 0.001, 0, False)
         return task_id, 0.0, 0.0
 
     # Episode loop
@@ -150,7 +150,8 @@ def run_episode(task_id: str, seed: int = 42) -> Tuple[str, float, float]:
             obs    = data["observation"]
             done   = data["done"]
             reward = float(data.get("reward", 0.0))
-            score  = float(obs.get("partial_score", 0.0))
+            score  = float(obs.get("partial_score", 0.001))
+            score = min(0.999,max(0.001 , score)))
             error_msg = None
         except Exception as e:
             error_msg = str(e)[:80]
@@ -194,11 +195,11 @@ def main():
                 scores[tid]  = round(score, 4)
                 elapsed[tid] = secs
             except Exception as exc:
-                scores[task_id]  = 0.0
+                scores[task_id]  = 0.001
                 elapsed[task_id] = -1.0
-                log_end(task_id, 0.0, 0, False)
+                log_end(task_id, 0.001, 0, False)
 
-    mean = round(sum(scores.values()) / len(scores), 4) if scores else 0.0
+    mean = round(sum(scores.values()) / len(scores), 4) if scores else 0.001
     print(json.dumps({**scores, "mean": mean}, indent=2), flush=True)
 
 
