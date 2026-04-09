@@ -151,7 +151,7 @@ def run_episode(task_id: str, seed: int = 42) -> Tuple[str, float, float]:
             done   = data["done"]
             reward = float(data.get("reward", 0.0))
             score  = float(obs.get("partial_score", 0.001))
-            score = min(0.999,max(0.001 , score))
+            score = float(min(0.999,max(0.001 , score)))
             error_msg = None
         except Exception as e:
             error_msg = str(e)[:80]
