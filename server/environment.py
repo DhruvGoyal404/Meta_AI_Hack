@@ -108,7 +108,7 @@ class DataCleanEnvironment:
         self._episode_id     = str(uuid.uuid4())
         self._step_count     = 0
         self._drift_batch_num = 0
-        self._prev_score     = 0.0
+        self._prev_score     = 0.001
         self._last_reward    = 0.0
 
         dirty, expected = make_task(task_id, seed)
