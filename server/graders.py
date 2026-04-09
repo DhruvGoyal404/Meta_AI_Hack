@@ -11,7 +11,7 @@ def grade_task1(df: pd.DataFrame, expected_df: pd.DataFrame) -> float:
     if df is None or df.empty:
         return 0.001
     n = max(1, len(df))
-    score = 0.0
+    score = 0.001
 
     if "age" in df.columns:
         if pd.api.types.is_integer_dtype(df["age"]):
@@ -32,7 +32,7 @@ def grade_task2(df: pd.DataFrame, expected_df: pd.DataFrame, dirty_df: pd.DataFr
     if df is None or df.empty:
         return 0.001
     n = max(1, len(df))
-    score = 0.0
+    score = 0.001
 
     n_dirty_dups = int(dirty_df.duplicated().sum())
     n_curr_dups  = int(df.duplicated().sum())
@@ -64,7 +64,7 @@ def grade_task3(tables: Dict[str, pd.DataFrame], expected_df: pd.DataFrame,
         return 0.001
 
     n = max(1, len(df))
-    score = 0.0
+    score = 0.001
 
     required_cols = {"order_id", "customer_id", "amount", "name", "country"}
     col_score = len(required_cols & set(df.columns)) / len(required_cols)
@@ -117,7 +117,7 @@ def grade_task4(df: pd.DataFrame) -> float:
         return 0.001
 
     n = max(1, len(df))
-    score = 0.0
+    score = 0.001
 
     if "amount" in df.columns:
         amt = pd.to_numeric(df["amount"], errors="coerce")
