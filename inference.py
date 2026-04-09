@@ -103,8 +103,9 @@ def run_episode(task_id: str, seed: int = 42) -> Tuple[str, float, float]:
         obs  = resp.json()
         done = obs.get("done", False)
     except Exception as e:
-        log_end(task_id, 0.001, 0, False)
-        return task_id, 0.0, 0.0
+        safe_score = 0.001
+        log_end(task_id, safe_score, 0, False)
+        return task_id, safe_score, 0.0
 
     # Episode loop
     for step_num in range(1, max_steps + 1):
@@ -159,7 +160,7 @@ def run_episode(task_id: str, seed: int = 42) -> Tuple[str, float, float]:
 
         log_step(step_num, action_str, reward, done, error_msg)
         time.sleep(0.3)
-
+    score = min(0.999, max(0.001 , score))
     success = score >= 0.5
     log_end(task_id, score, step_num, success)
     return task_id, score, round(time.time() - t0, 2)
