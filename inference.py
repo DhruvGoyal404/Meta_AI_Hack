@@ -23,10 +23,20 @@ from openai import OpenAI
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Tuple
 
+# ENV_URL = os.environ.get("ENV_URL", "http://localhost:7860")
+# API_KEY = os.environ["API_KEY"]
+# API_BASE_URL = os.environ["API_BASE_URL"]
+# MODEL_NAME = os.environ["MODEL_NAME"]
+
+# ENV_URL = os.environ.get("ENV_URL", "http://localhost:7860")
+# API_KEY = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN") or os.environ.get("HFTOKEN")
+# API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
+# MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+
 ENV_URL = os.environ.get("ENV_URL", "http://localhost:7860")
-API_KEY = os.environ["API_KEY"]
-API_BASE_URL = os.environ["API_BASE_URL"]
-MODEL_NAME = os.environ["MODEL_NAME"]
+API_KEY = os.environ.get("API_KEY") or os.environ.get("HF_TOKEN") or os.environ.get("HFTOKEN")
+API_BASE_URL = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
+MODEL = os.environ.get("MODEL_NAME", "gpt-4o-mini")
 
 TASK_MAX_STEPS = {
     "task1":            10,
@@ -131,7 +141,7 @@ def log_end(task_id: str, score: float, steps: int, success: bool):
 # ── LLM client ────────────────────────────────────────────────────────────────
 
 def _make_client():
-    return OpenAI(api_key=API_KEY or "not-needed", base_url=API_BASE_URL)
+    return OpenAI(api_key=API_KEY, base_url=API_BASE_URL)
 
 
 def _build_prompt(obs: dict, task_id: str) -> str:
