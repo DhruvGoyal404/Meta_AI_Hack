@@ -219,15 +219,15 @@
 #     main()
 
 """
-FastAPI server for DataClean OpenEnv.
+FastAPI server for DataClean OpenEnv — fully fixed version.
 
-Key fixes vs previous version:
-  1. /reset accepts POST with JSON body OR completely empty body (OpenEnv validator sends both).
-  2. /baseline uses HF_TOKEN (same as inference.py) — was wrongly requiring OPENAI_API_KEY.
-  3. /baseline runs tasks sequentially (no circular import from baseline.py).
-  4. All scores returned are real grader scores — no hardcoded constants.
-  5. Added asyncio.sleep() between steps in /baseline to avoid rate-limit 429s on Groq.
-  6. CORS headers allow the OpenEnv validator to reach all endpoints.
+Critical fixes:
+  1. /reset accepts GET (returns schema info) AND POST (resets episode).
+     The OpenEnv validator sends GET /reset to check route existence.
+  2. /step accepts GET (returns schema info) AND POST (executes action).
+  3. /reset POST accepts empty body, partial body, or full body.
+  4. /baseline uses HF_TOKEN (not OPENAI_API_KEY) with rule-based fallback.
+  5. All scores come from real graders — never hardcoded.
 """
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -237,7 +237,7 @@ import asyncio
 import logging
 from typing import Optional, Dict
 
-from fastapi import FastAPI, HTTPException, Body
+from fastapi import FastAPI, HTTPException, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -270,22 +270,18 @@ def _env(session_id: str = "default") -> DataCleanEnvironment:
     return _sessions[session_id]
 
 
-# ── Request models ─────────────────────────────────────────────────────────────
+# ── Request model ─────────────────────────────────────────────────────────────
 
 class ResetRequest(BaseModel):
-    """
-    OpenEnv validator may POST /reset with:
-      - A full JSON body: {"task_id": "task1", "seed": 42, "session_id": "x"}
-      - A partial body: {"task_id": "task1"}
-      - A completely empty body: {}  (or no Content-Type at all)
-    All cases are handled by making every field Optional with defaults.
-    """
     task_id:    Optional[str] = "task1"
     seed:       Optional[int] = 42
     session_id: Optional[str] = "default"
 
+    class Config:
+        extra = "allow"  # Accept unknown fields without crashing
 
-# ── Core OpenEnv endpoints ────────────────────────────────────────────────────
+
+# ── Root and health ───────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
@@ -306,23 +302,61 @@ def root():
     }
 
 
+# ── /reset — GET (discovery) + POST (actual reset) ───────────────────────────
+
+@app.get("/reset")
+def reset_schema():
+    """
+    GET /reset — returns the action schema for the reset endpoint.
+    Required because the OpenEnv validator sends GET /reset to check the
+    route exists before POSTing to it.
+    """
+    return {
+        "description": "POST to this endpoint to reset the environment.",
+        "method": "POST",
+        "body_schema": {
+            "task_id":    {"type": "string", "default": "task1",
+                           "enum": list(TASK_CONFIG.keys())},
+            "seed":       {"type": "integer", "default": 42},
+            "session_id": {"type": "string",  "default": "default"},
+        },
+        "example": {"task_id": "task1", "seed": 42, "session_id": "default"},
+    }
+
+
 @app.post("/reset")
-def reset(body: Optional[ResetRequest] = Body(default=None)):
+async def reset(request: Request):
     """
-    Reset the environment.
+    POST /reset — reset the environment and return the initial observation.
 
-    Accepts:
-      POST /reset               (no body — OpenEnv validator smoke test)
-      POST /reset  {}           (empty JSON body)
-      POST /reset  {"task_id":"task1", "seed":42, "session_id":"default"}
+    Accepts any of:
+      - No body at all
+      - Empty JSON body: {}
+      - Partial body:    {"task_id": "task1"}
+      - Full body:       {"task_id": "task1", "seed": 42, "session_id": "abc"}
     """
-    if body is None:
-        body = ResetRequest()
+    # Parse body safely — handle empty body, bad JSON, or missing fields
+    task_id    = "task1"
+    seed       = 42
+    session_id = "default"
 
-    # Ensure defaults when fields are None
-    task_id    = body.task_id    or "task1"
-    seed       = body.seed       if body.seed is not None else 42
-    session_id = body.session_id or "default"
+    try:
+        body_bytes = await request.body()
+        if body_bytes and body_bytes.strip():
+            body = json.loads(body_bytes)
+            task_id    = body.get("task_id",    task_id)
+            seed       = body.get("seed",       seed)
+            session_id = body.get("session_id", session_id)
+    except Exception:
+        pass  # Bad/empty body — use defaults
+
+    # Sanitise
+    if not isinstance(task_id, str) or task_id not in TASK_CONFIG:
+        task_id = "task1"
+    if not isinstance(seed, int):
+        seed = 42
+    if not isinstance(session_id, str) or not session_id:
+        session_id = "default"
 
     env = _env(session_id)
     try:
@@ -335,9 +369,35 @@ def reset(body: Optional[ResetRequest] = Body(default=None)):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+# ── /step — GET (discovery) + POST (actual step) ─────────────────────────────
+
+@app.get("/step")
+def step_schema():
+    """
+    GET /step — returns the action schema for the step endpoint.
+    OpenEnv validator sends GET /step to check the route exists.
+    """
+    return {
+        "description": "POST to this endpoint to execute one cleaning action.",
+        "method": "POST",
+        "query_params": {
+            "session_id": {"type": "string", "default": "default"},
+        },
+        "action_schema": DataCleanAction.model_json_schema(),
+        "example_actions": [
+            {"operation": "fill_nulls",  "column": "age",     "strategy": "median", "table_name": "main"},
+            {"operation": "cast_column", "column": "age",     "dtype": "int",        "table_name": "main"},
+            {"operation": "submit"},
+        ],
+    }
+
+
 @app.post("/step")
 def step(action: DataCleanAction, session_id: str = "default"):
-    """Execute one cleaning operation. Returns {observation, reward, done, info}."""
+    """
+    POST /step — execute one cleaning operation.
+    Returns: {observation, reward, done, info}
+    """
     env = _env(session_id)
     try:
         obs, reward, done, info = env.step(action)
@@ -345,14 +405,16 @@ def step(action: DataCleanAction, session_id: str = "default"):
                     session_id, action.operation, obs.partial_score, reward, done)
         return {
             "observation": obs.model_dump(),
-            "reward": reward,
-            "done": done,
-            "info": info,
+            "reward":      reward,
+            "done":        done,
+            "info":        info,
         }
     except Exception as exc:
         logger.error("step error: %s", exc)
         raise HTTPException(status_code=400, detail=str(exc))
 
+
+# ── /state ────────────────────────────────────────────────────────────────────
 
 @app.get("/state")
 def state(session_id: str = "default"):
@@ -366,7 +428,7 @@ def state(session_id: str = "default"):
     }
 
 
-# ── Hackathon-required endpoints ──────────────────────────────────────────────
+# ── /tasks ────────────────────────────────────────────────────────────────────
 
 @app.get("/tasks")
 def get_tasks():
@@ -387,9 +449,11 @@ def get_tasks():
     }
 
 
+# ── /grader ───────────────────────────────────────────────────────────────────
+
 @app.get("/grader")
 def grader(session_id: str = "default"):
-    """Returns current grader score in [0.05, 0.98] for active episode."""
+    """Returns current grader score in (0.05, 0.98) for active episode."""
     env = _env(session_id)
     return {
         "score":      env.last_partial_score,
@@ -399,32 +463,29 @@ def grader(session_id: str = "default"):
     }
 
 
+# ── /baseline ─────────────────────────────────────────────────────────────────
+
 @app.get("/baseline")
 async def baseline():
     """
-    Run a simple rule-based baseline agent on all 4 tasks.
-
-    Uses HF_TOKEN + API_BASE_URL + MODEL_NAME environment variables.
-    If those are not set, falls back to a deterministic rule-based agent
-    so the endpoint always returns valid scores (never crashes).
+    Run a rule-based + optional LLM baseline on all 4 tasks.
+    Uses HF_TOKEN / API_BASE_URL / MODEL_NAME environment variables.
+    Always returns valid scores even without an API key (pure rule-based fallback).
     """
     try:
         result = await _run_baseline_internal()
         return result
     except Exception as exc:
         logger.error("baseline error: %s", exc)
-        # Return a valid response even on error — scores must be in (0,1)
         return {
-            "error": str(exc),
-            "scores": {tid: 0.05 for tid in TASK_CONFIG},
+            "error":      str(exc),
+            "scores":     {tid: 0.05 for tid in TASK_CONFIG},
             "mean_score": 0.05,
         }
 
 
-# ── Internal baseline (rule-based fallback + optional LLM) ───────────────────
+# ── Internal baseline logic ───────────────────────────────────────────────────
 
-# Deterministic cleaning steps per task — the agent tries these in order.
-# This is the "rule-based" baseline that works even without an LLM API key.
 _RULE_ACTIONS: Dict[str, list] = {
     "task1": [
         {"operation": "fill_nulls",  "column": "age",    "strategy": "median", "table_name": "main"},
@@ -433,10 +494,10 @@ _RULE_ACTIONS: Dict[str, list] = {
         {"operation": "submit"},
     ],
     "task2": [
-        {"operation": "remove_duplicates",                                       "table_name": "main"},
+        {"operation": "remove_duplicates",                                        "table_name": "main"},
         {"operation": "normalize_values", "column": "country", "method": "upper","table_name": "main"},
         {"operation": "cast_column",  "column": "order_date", "dtype": "datetime","table_name": "main"},
-        {"operation": "fill_nulls",   "column": "amount",  "strategy": "mean",  "table_name": "main"},
+        {"operation": "fill_nulls",   "column": "amount",  "strategy": "mean",   "table_name": "main"},
         {"operation": "submit"},
     ],
     "task3": [
@@ -451,7 +512,8 @@ _RULE_ACTIONS: Dict[str, list] = {
         {"operation": "submit"},
     ],
     "task4_data_drift": [
-        {"operation": "filter_outliers", "column": "amount",   "method": "iqr", "threshold": 1.5, "table_name": "stream"},
+        {"operation": "filter_outliers", "column": "amount", "method": "iqr",
+         "threshold": 1.5, "table_name": "stream"},
         {"operation": "fill_nulls",   "column": "amount",   "strategy": "mean",  "table_name": "stream"},
         {"operation": "cast_column",  "column": "amount",   "dtype": "float",    "table_name": "stream"},
         {"operation": "fill_nulls",   "column": "category", "strategy": "mode",  "table_name": "stream"},
@@ -463,23 +525,18 @@ _RULE_ACTIONS: Dict[str, list] = {
 
 
 async def _run_baseline_internal() -> dict:
-    """
-    Run a deterministic rule-based baseline against all tasks in-process.
-    Optionally uses the LLM if HF_TOKEN / OPENAI_API_KEY is set — but the
-    rule-based path always works without any API key.
-    """
-    scores: Dict[str, float] = {}
-    seed = 42
-    model = os.environ.get("MODEL_NAME", "")
+    """Deterministic rule-based baseline; uses LLM if API key is available."""
     api_key = (
         os.environ.get("HF_TOKEN") or
         os.environ.get("OPENAI_API_KEY") or
         ""
     )
     base_url = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
+    model    = os.environ.get("MODEL_NAME", "")
+    use_llm  = bool(api_key and model)
+    seed     = 42
 
-    use_llm = bool(api_key and model)
-
+    client = None
     if use_llm:
         try:
             from openai import AsyncOpenAI
@@ -487,12 +544,14 @@ async def _run_baseline_internal() -> dict:
         except ImportError:
             use_llm = False
 
+    scores: Dict[str, float] = {}
+
     for task_id, cfg in TASK_CONFIG.items():
-        session_id = f"baseline_{task_id}_internal"
-        env = _env(session_id)
-        obs = env.reset(task_id=task_id, seed=seed)
+        session_id   = f"_baseline_{task_id}"
+        env          = _env(session_id)
+        obs          = env.reset(task_id=task_id, seed=seed)
         rule_actions = _RULE_ACTIONS.get(task_id, [{"operation": "submit"}])
-        action_idx = 0
+        rule_idx     = 0
 
         for _ in range(cfg["max_steps"]):
             if obs.done:
@@ -500,23 +559,21 @@ async def _run_baseline_internal() -> dict:
 
             action_dict = None
 
-            # Try LLM first if available
-            if use_llm:
+            if use_llm and client is not None:
                 try:
                     prompt = (
-                        f"Task: {obs.task_id}\nStep: {obs.step_count}/{obs.max_steps}\n"
-                        f"Score: {obs.partial_score:.4f}\nMessage: {obs.message}\n"
-                        f"Schema errors: {obs.schema_errors[:4]}\n"
-                        f"Null counts: {json.dumps(obs.null_counts)}\n"
-                        f"Available ops: {obs.available_operations}\n\n"
-                        "Respond ONLY with a valid JSON action object."
+                        f"Task: {obs.task_id} | Step: {obs.step_count}/{obs.max_steps}\n"
+                        f"Score: {obs.partial_score:.4f} | Nulls: {json.dumps(obs.null_counts)}\n"
+                        f"Errors: {obs.schema_errors[:3]}\n"
+                        f"Available: {obs.available_operations}\n"
+                        "Output ONE valid JSON action object only."
                     )
                     resp = await client.chat.completions.create(
                         model=model,
                         messages=[
                             {"role": "system", "content":
-                             "You are a data cleaning agent. Output ONLY valid JSON, no markdown."},
-                            {"role": "user", "content": prompt},
+                             "You are a data cleaning agent. Respond ONLY with valid JSON."},
+                            {"role": "user",   "content": prompt},
                         ],
                         temperature=0.0,
                         max_tokens=200,
@@ -524,18 +581,15 @@ async def _run_baseline_internal() -> dict:
                     raw = resp.choices[0].message.content.strip()
                     raw = raw.replace("```json", "").replace("```", "").strip()
                     action_dict = json.loads(raw)
-                    await asyncio.sleep(0.4)  # rate-limit buffer for Groq
+                    await asyncio.sleep(0.4)
                 except Exception as e:
-                    logger.warning("LLM step failed, using rule: %s", e)
-                    action_dict = None
+                    logger.warning("LLM baseline step failed: %s", e)
 
-            # Fallback to rule-based
             if action_dict is None:
-                if action_idx < len(rule_actions):
-                    action_dict = rule_actions[action_idx]
-                    action_idx += 1
-                else:
-                    action_dict = {"operation": "submit"}
+                action_dict = (rule_actions[rule_idx]
+                               if rule_idx < len(rule_actions)
+                               else {"operation": "submit"})
+                rule_idx += 1
 
             try:
                 action = DataCleanAction(**action_dict)
@@ -545,16 +599,15 @@ async def _run_baseline_internal() -> dict:
             obs_tuple = env.step(action)
             obs = obs_tuple[0]
 
-        final_score = float(obs.partial_score)
-        scores[task_id] = round(final_score, 4)
-        logger.info("baseline | task=%s score=%.4f", task_id, final_score)
+        scores[task_id] = round(float(obs.partial_score), 4)
+        logger.info("baseline | task=%s score=%.4f", task_id, scores[task_id])
 
     mean = round(sum(scores.values()) / len(scores), 4) if scores else 0.05
     return {
-        "scores": scores,
+        "scores":     scores,
         "mean_score": mean,
-        "model": model or "rule-based",
-        "seed": seed,
+        "model":      model or "rule-based",
+        "seed":       seed,
     }
 
 
