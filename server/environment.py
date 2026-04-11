@@ -81,6 +81,17 @@ TASK_CONFIG = {
 }
 
 
+def _safe_score(raw) -> float:
+    """Enforce 0.001–0.999 contract; also catches NaN/inf from graders."""
+    try:
+        v = float(raw)
+        if not np.isfinite(v):
+            v = 0.001
+        return round(min(0.999, max(0.001, v)), 4)
+    except Exception:
+        return 0.001
+
+
 class DataCleanEnvironment:
     SUPPORTS_CONCURRENT_SESSIONS = True
 
@@ -89,7 +100,7 @@ class DataCleanEnvironment:
         self._seed       = 42
         self._episode_id = str(uuid.uuid4())
         self._step_count = 0
-        self._drift_batch_num   = 0        # which drift batch to inject next
+        self._drift_batch_num   = 0
         self._tables:            Dict[str, pd.DataFrame] = {}
         self._expected_tables:   Dict[str, pd.DataFrame] = {}
         self._dirty_tables:      Dict[str, pd.DataFrame] = {}
@@ -339,11 +350,9 @@ class DataCleanEnvironment:
     # ── Scoring ───────────────────────────────────────────────────────────────
 
     def _score(self) -> float:
-        # FIX: Previously, the min/max clamp was only applied in the `else`
-        # branch (unknown task). All real task branches returned the grader's
-        # value directly, with no environment-level safety net. Now every
-        # branch is clamped here, providing a second layer of protection even
-        # if a grader misbehaves or raises an unexpected exception.
+        # FIX: Previously each task branch returned directly from the grader,
+        # bypassing the clamp. Now ALL branches go through _safe_score().
+        # The try/except also catches grader exceptions without crashing the env.
         try:
             if self._task_id == "task1":
                 raw = grade_task1(self._tables["main"], self._expected_tables["main"])
@@ -360,8 +369,8 @@ class DataCleanEnvironment:
         except Exception:
             raw = 0.001
 
-        # Single, unified clamp — always reached for every task.
-        return round(min(0.999, max(0.001, float(raw))), 4)
+        # _safe_score is the single, unified enforcement point.
+        return _safe_score(raw)
 
     # ── Observation builder ───────────────────────────────────────────────────
 
@@ -369,6 +378,10 @@ class DataCleanEnvironment:
              new_rows: int = 0, score: Optional[float] = None) -> DataCleanObservation:
         cfg   = TASK_CONFIG[self._task_id]
         score = score if score is not None else self._score()
+        # FIX: clamp score here too — _obs() can be called with an arbitrary
+        # score= kwarg (e.g. from submit path), ensure it's always in range.
+        score = _safe_score(score)
+
         tables_json, col_dtypes, null_counts, dup_counts, row_counts = {}, {}, {}, {}, {}
         for nm, df in self._tables.items():
             tables_json[nm] = df.head(10).to_json(orient="records", default_handler=str)
@@ -377,7 +390,6 @@ class DataCleanEnvironment:
             dup_counts[nm]  = int(df.duplicated().sum())
             row_counts[nm]  = int(len(df))
 
-        # Drift-specific: append new_rows info to message
         msg = self._last_msg
         if new_rows > 0 and "DRIFT" not in msg:
             msg = f"[+{new_rows} drift rows] " + msg
