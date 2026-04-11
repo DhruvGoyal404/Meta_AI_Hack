@@ -115,14 +115,14 @@ def log_start(task_id: str):
 
 
 def log_step(step: int, action: str, reward: float, done: bool, error=None):
-    safe_r  = _safe_reward(reward)
+    safe_r  = max(0.01, min(0.98, float(reward)))  # clamp HERE too — last line of defense
     err_val = f'"{error}"' if error else "null"
     print(f"[STEP] step={step} action={action} reward={safe_r:.4f} "
           f"done={str(done).lower()} error={err_val}", flush=True)
 
 
 def log_end(task_id: str, score: float, steps: int, success: bool):
-    safe_s = _safe_score(score)
+    safe_s = max(0.05, min(0.98, float(score)))  # clamp HERE too — last line of defense
     print(f"[END] task={task_id} score={safe_s:.4f} steps={steps} "
           f"success={str(success).lower()}", flush=True)
 
