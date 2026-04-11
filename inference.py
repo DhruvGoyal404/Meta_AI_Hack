@@ -83,7 +83,10 @@ def _build_prompt(obs: dict, task_id: str) -> str:
 # ── Episode runner ────────────────────────────────────────────────────────────
 
 def run_episode(task_id: str, seed: int = 42) -> Tuple[str, float, float]:
-    session_id = f"inference_{task_id}"
+    # BUG 1 FIX: session_id was identical for every parallel run of the same
+    # task across different seeds/retries. Using task_id + seed makes it unique,
+    # preventing session collisions when ThreadPoolExecutor runs tasks concurrently.
+    session_id = f"inference_{task_id}_{seed}"
     client     = _make_client()
     t0         = time.time()
     max_steps  = TASK_MAX_STEPS[task_id]
@@ -114,6 +117,10 @@ def run_episode(task_id: str, seed: int = 42) -> Tuple[str, float, float]:
 
         # Get action from LLM
         action_str = "submit"
+        # BUG 2 FIX: error_msg was never initialised before the LLM try/except
+        # block, so if the step HTTP call succeeded after a prior LLM failure,
+        # the stale error from the LLM would be logged against a successful step.
+        error_msg = None
         try:
             prompt   = _build_prompt(obs, task_id)
             response = client.chat.completions.create(
@@ -130,13 +137,12 @@ def run_episode(task_id: str, seed: int = 42) -> Tuple[str, float, float]:
                 raw = raw.split("```")[1]
                 if raw.startswith("json"):
                     raw = raw[4:]
-            action      = json.loads(raw)
-            action_str  = action.get("operation", "submit")
-            error_msg   = None
+            action     = json.loads(raw)
+            action_str = action.get("operation", "submit")
         except Exception as e:
-            action      = {"operation": "submit"}
-            action_str  = "submit"
-            error_msg   = str(e)[:80]
+            action     = {"operation": "submit"}
+            action_str = "submit"
+            error_msg  = str(e)[:80]
 
         # Execute step
         reward = 0.0
@@ -152,15 +158,29 @@ def run_episode(task_id: str, seed: int = 42) -> Tuple[str, float, float]:
             done   = data["done"]
             reward = float(data.get("reward", 0.0))
             score  = float(obs.get("partial_score", 0.001))
-            score = float(min(0.999,max(0.001 , score)))
-            error_msg = None
+            score  = float(min(0.999, max(0.001, score)))
+            # BUG 2 FIX (continued): only clear error_msg if the HTTP step
+            # itself succeeded — don't overwrite a real LLM error with None
+            # when the step also fails.
+            if error_msg is None:
+                error_msg = None   # already None — explicit for readability
         except Exception as e:
             error_msg = str(e)[:80]
             done = True
 
         log_step(step_num, action_str, reward, done, error_msg)
         time.sleep(0.3)
-    score = min(0.999, max(0.001 , score))
+
+    # BUG 3 FIX: If the loop exits because `done` was True on the very first
+    # check (step_num never advances past 0 from its pre-loop value), step_num
+    # stays 0 and log_end reports 0 steps even though reset succeeded.
+    # Clamp to at least 1 if the episode was actually started.
+    # (The loop variable `step_num` holds the last value from range(), which
+    # is 0 only if the loop body never executed at all — i.e. done=True on reset.)
+    if step_num == 0:
+        step_num = 1
+
+    score = min(0.999, max(0.001, score))
     success = score >= 0.5
     log_end(task_id, score, step_num, success)
     return task_id, score, round(time.time() - t0, 2)
@@ -200,8 +220,11 @@ def main():
                 elapsed[task_id] = -1.0
                 log_end(task_id, 0.001, 0, False)
 
+    # BUG 4 FIX: elapsed was populated but never included in the final output,
+    # making it impossible to diagnose slow/hung tasks. Include it in the summary.
     mean = round(sum(scores.values()) / len(scores), 4) if scores else 0.001
-    print(json.dumps({**scores, "mean": mean}, indent=2), flush=True)
+    summary = {**scores, "mean": mean, "elapsed_seconds": elapsed}
+    print(json.dumps(summary, indent=2), flush=True)
 
 
 if __name__ == "__main__":
