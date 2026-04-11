@@ -6,12 +6,19 @@ import pandas as pd
 import numpy as np
 from typing import Dict
 
+# FIX: Helper to enforce the score contract in one place.
+def _clamp(score: float) -> float:
+    return round(min(0.999, max(0.001, score)), 4)
+
 
 def grade_task1(df: pd.DataFrame, expected_df: pd.DataFrame) -> float:
     if df is None or df.empty:
         return 0.001
     n = max(1, len(df))
-    score = 0.001
+    # FIX: Start at 0.0, not 0.001. Weights sum to 1.0; starting at 0.001
+    # pushed a perfect score to 1.001 before the final clamp, which masked
+    # that the raw sum was already out-of-range.
+    score = 0.0
 
     if "age" in df.columns:
         if pd.api.types.is_integer_dtype(df["age"]):
@@ -25,14 +32,16 @@ def grade_task1(df: pd.DataFrame, expected_df: pd.DataFrame) -> float:
         null_r = df["salary"].isna().sum() / n
         score += 0.20 * (1.0 - null_r)
 
-    return round(min(0.999, max(0.001, score)), 4)
+    # FIX: Ensure non-zero floor so a partly-cleaned df never returns exactly 0.0.
+    return _clamp(max(0.001, score))
 
 
 def grade_task2(df: pd.DataFrame, expected_df: pd.DataFrame, dirty_df: pd.DataFrame) -> float:
     if df is None or df.empty:
         return 0.001
     n = max(1, len(df))
-    score = 0.001
+    # FIX: Start at 0.0 (same reasoning as grade_task1).
+    score = 0.0
 
     n_dirty_dups = int(dirty_df.duplicated().sum())
     n_curr_dups  = int(df.duplicated().sum())
@@ -52,7 +61,7 @@ def grade_task2(df: pd.DataFrame, expected_df: pd.DataFrame, dirty_df: pd.DataFr
     if "amount" in df.columns:
         score += 0.15 * (1.0 - df["amount"].isna().sum() / n)
 
-    return round(min(0.999, max(0.001, score)), 4)
+    return _clamp(max(0.001, score))
 
 
 def grade_task3(tables: Dict[str, pd.DataFrame], expected_df: pd.DataFrame,
@@ -64,7 +73,8 @@ def grade_task3(tables: Dict[str, pd.DataFrame], expected_df: pd.DataFrame,
         return 0.001
 
     n = max(1, len(df))
-    score = 0.001
+    # FIX: Start at 0.0.
+    score = 0.0
 
     required_cols = {"order_id", "customer_id", "amount", "name", "country"}
     col_score = len(required_cols & set(df.columns)) / len(required_cols)
@@ -109,7 +119,7 @@ def grade_task3(tables: Dict[str, pd.DataFrame], expected_df: pd.DataFrame,
         valid = float(((years >= 2020) & (years <= 2030)).mean())
         score += 0.20 * valid
 
-    return round(min(0.999, max(0.001, score)), 4)
+    return _clamp(max(0.001, score))
 
 
 def grade_task4(df: pd.DataFrame) -> float:
@@ -117,7 +127,8 @@ def grade_task4(df: pd.DataFrame) -> float:
         return 0.001
 
     n = max(1, len(df))
-    score = 0.001
+    # FIX: Start at 0.0.
+    score = 0.0
 
     if "amount" in df.columns:
         amt = pd.to_numeric(df["amount"], errors="coerce")
@@ -145,4 +156,4 @@ def grade_task4(df: pd.DataFrame) -> float:
     row_health = min(0.999, n / 60.0)
     score += 0.20 * row_health
 
-    return round(min(0.999, max(0.001, score)), 4)
+    return _clamp(max(0.001, score))
