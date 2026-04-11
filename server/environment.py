@@ -339,22 +339,29 @@ class DataCleanEnvironment:
     # ── Scoring ───────────────────────────────────────────────────────────────
 
     def _score(self) -> float:
+        # FIX: Previously, the min/max clamp was only applied in the `else`
+        # branch (unknown task). All real task branches returned the grader's
+        # value directly, with no environment-level safety net. Now every
+        # branch is clamped here, providing a second layer of protection even
+        # if a grader misbehaves or raises an unexpected exception.
         try:
             if self._task_id == "task1":
-                return grade_task1(self._tables["main"], self._expected_tables["main"])
+                raw = grade_task1(self._tables["main"], self._expected_tables["main"])
             elif self._task_id == "task2":
-                return grade_task2(self._tables["main"], self._expected_tables["main"],
+                raw = grade_task2(self._tables["main"], self._expected_tables["main"],
                                    self._dirty_tables["main"])
             elif self._task_id == "task3":
-                return grade_task3(self._tables, self._expected_tables["main"],
+                raw = grade_task3(self._tables, self._expected_tables["main"],
                                    self._dirty_tables)
             elif self._task_id == "task4_data_drift":
-                return grade_task4(self._tables.get("stream", pd.DataFrame()))
+                raw = grade_task4(self._tables.get("stream", pd.DataFrame()))
             else:
-                score = 0.001
+                raw = 0.001
         except Exception:
-            return 0.001
-        return float(min(0.999, max(0.001 , score)))
+            raw = 0.001
+
+        # Single, unified clamp — always reached for every task.
+        return round(min(0.999, max(0.001, float(raw))), 4)
 
     # ── Observation builder ───────────────────────────────────────────────────
 
