@@ -190,7 +190,7 @@ def run_baseline_parallel(seed: int = 42) -> Dict[str, float]:
                 elapsed[tid] = secs
             except Exception as exc:
                 print(f"  [{task_id}] FAILED: {exc}")
-                scores[task_id]  = 0.0
+                scores[task_id]  = 0.001
                 elapsed[task_id] = -1.0
 
     wall_time = round(time.time() - t_total, 2)
