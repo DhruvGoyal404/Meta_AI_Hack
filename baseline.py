@@ -21,14 +21,14 @@ from openai import OpenAI
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, Tuple
 
-ENV_URL  = os.environ.get("ENV_URL", "http://localhost:7860")
-API_KEY  = os.environ.get("OPENAI_API_KEY", "")
-BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
-MODEL    = os.environ.get("BASELINE_MODEL", "gpt-4o-mini")
+ENV_URL = os.environ.get("ENV_URL", "http://localhost:7860")
+API_KEY = os.environ["API_KEY"]
+API_BASE_URL = os.environ["API_BASE_URL"]
+MODEL_NAME = os.environ["MODEL_NAME"]
 
 # Each task runs in its own thread with its own OpenAI client (thread-safe)
 def _make_client():
-    return OpenAI(api_key=API_KEY, base_url=BASE_URL)
+    return OpenAI(api_key=API_KEY, base_url=API_BASE_URL)
 
 TASK_MAX_STEPS = {
     "task1": 10,
